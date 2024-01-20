@@ -1,0 +1,69 @@
+version: 2.1
+
+orbs:
+  docker: circleci/docker@2.1.4
+  heroku: circleci/heroku@2.0.0
+
+jobs:
+  build:
+    docker:
+      - image: cimg/openjdk:20.0.2
+    steps:
+      - checkout
+      - run: mvn clean spring-boot:run
+
+  test:
+    docker:
+      - image: cimg/openjdk:20.0.2
+      - image: cimg/postgres:12.17
+        environment:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: library-booking-system
+    steps:
+      - checkout
+      - run:
+          name: Wait for db to run
+          command: dockerize -wait tcp://localhost:5432 -timeout 1m
+      - run: mvn test
+
+  publish:
+    executor: docker/docker
+    steps:
+      - setup_remote_docker
+      - checkout
+      - docker/check
+      - docker/build:
+          image: meowdaline/Library-Booking-System/librarybookingsystem
+          tag: v1.0.0
+      - docker/push:
+          image: meowdaline/Library-Booking-System/librarybookingsystem
+          tag: v1.0.0
+
+  deploy:
+    docker:
+      - image: cimg/openjdk:20.0.2
+    steps:
+      - setup_remote_docker
+      - checkout
+      - heroku/install
+      - run:
+          name: Heroku Container Push
+          command: |
+            heroku container:login
+            heroku container:push web -a library-booking-system
+            heroku container:release web -a library-booking-system
+
+workflows:
+  simple_workflow:
+    jobs:
+      - build
+      - test:
+          requires:
+            - build
+      - publish:
+          requires:
+            - test
+      - deploy:
+          requires:
+            - publish
